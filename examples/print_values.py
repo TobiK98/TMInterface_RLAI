@@ -12,6 +12,7 @@ class MainClient(Client):
     def on_run_step(self, iface: TMInterface, _time: int):
         if _time >= 0:
             state = iface.get_simulation_state()
+            check = iface.get_checkpoint_state()
 
             print(
                 f'Time: {_time}\n' 
@@ -19,6 +20,7 @@ class MainClient(Client):
                 f'Position: {state.position}\n'
                 f'Velocity: {state.velocity}\n'
                 f'YPW: {state.yaw_pitch_roll}\n'
+                f'checkpoint_state: {check.cp_states}\n'
             )
 
 
