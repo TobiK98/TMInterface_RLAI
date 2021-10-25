@@ -13,6 +13,8 @@ class TMEnv(Env):
                                         'checkpoint_state': MultiBinary()})
                                         
         # length of each period
+
+        #Test
         self.episode_length = 30
         pass
 
