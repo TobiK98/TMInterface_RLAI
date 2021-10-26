@@ -1,12 +1,19 @@
 # import gym stuff
+import sys
 from gym import Env
 from gym.spaces import Discrete, Box, Dict, MultiBinary
+
+# import TM stuff
+from tminterface.client import run_client
+from tminterface.interface import TMInterface
 
 # import agent
 from agent import TMAgent
 
 # other imports
 import numpy as np
+
+
 
 
 class TMEnv(Env):
@@ -25,10 +32,10 @@ class TMEnv(Env):
 
     def step(self, action):
         # make the next move
-        TMAgent.make_move(action)
+        agent.make_move(TMInterface, action)
 
         # update state
-        self.state = TMAgent.receive_data()
+        self.state = agent.export_data()
 
         # decrease episode_length
         self.episode_length -= 1
@@ -55,11 +62,46 @@ class TMEnv(Env):
         pass
 
     def reset(self):
-        TMAgent.reset()
+        agent.restart(TMInterface)
         self.state = np.zeros(8).astype(int)
         self.episode_length = 30
         self.last_sum_of_chekpoints = 0
         self.current_sum_of_checkpoints = 0
+        return self.state
 
 
+
+agent = TMAgent()
 env = TMEnv()
+
+# connect to TM
+def main():
+    server_name = f'TMInterface{sys.argv[1]}' if len(sys.argv) > 1 else 'TMInterface0'
+    print(f'Connecting to {server_name}...')
+    run_client(agent, server_name)
+
+if __name__ == '__main__':
+    main()
+
+
+
+'''Testing the env
+episodes = 10
+for episode in range(1, episodes + 1):
+    obs = env.reset()
+    done = False
+    score = 0
+
+    while not done:
+        env.render()
+        action = env.action_space.sample()
+        obs, reward, done, info = env.step(action)
+        score += reward
+    
+    print(f'Episode:{episode} Score:{score}')
+
+env.close()
+'''
+    
+
+

@@ -1,13 +1,10 @@
 # import TM stuff
+import sys
 from tminterface.interface import TMInterface
 from tminterface.client import Client, run_client
 
-# import environment
-# from env import TMEnv
-
 # import others
 import numpy as np
-import sys
 
 
 
@@ -24,15 +21,16 @@ class TMAgent(Client):
         print(f'Registered to {iface.server_name}')
 
     # read TM data
+    # evtl. muss alles interessante hier drin passieren z.B. step
     def on_run_step(self, iface: TMInterface, _time: int):
         if _time >= 0:
             state = iface.get_simulation_state()
             check = iface.get_checkpoint_state()
-            self.export_data(check.cp_states)
+            self.checkpoint_states = check.cp_states
+            self.export_data()
 
     # transform data and export it to agent
-    def export_data(self, data):
-        self.checkpoint_states = data
+    def export_data(self):
         return np.array(self.checkpoint_states).astype(int)
 
     # let game play when goal reached
@@ -48,12 +46,12 @@ class TMAgent(Client):
     # make the next move
     def make_move(self, iface: TMInterface, action):
         if action == 0:
-            move = iface.set_input_state(left=True)
+            iface.set_input_state(left=True)
         if action == 1:
-            move = iface.set_input_state(accelerate=True)
+            iface.set_input_state(accelerate=True)
         if action == 2:
-            move = iface.set_input_state(right=True)
-        return move
+            iface.set_input_state(right=True)
+
 
 
 
