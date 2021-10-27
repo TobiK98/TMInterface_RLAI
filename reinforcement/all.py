@@ -1,5 +1,6 @@
 # import TM stuff
 import sys
+from time import time
 from tminterface.interface import TMInterface
 from tminterface.client import Client, run_client
 
@@ -8,30 +9,34 @@ import sys
 from gym import Env
 from gym.spaces import Discrete, Box, Dict, MultiBinary
 
+# import stable-baselines
+from stable_baselines3.common.policies import ActorCriticPolicy
+from stable_baselines3.common.env_util import make_vec_env
+from stable_baselines3 import A2C
+
 # import others
 import numpy as np
 
 
-
-class TMAgent(Client, Env):
+class TMEnv(Client, Env):
     def __init__(self) -> None:
-        super(TMAgent, self).__init__()
+        super(TMEnv, self).__init__()
 
         # game 
         self.checkpoint_states = None
-        self.position = None
-        self.velocity = None
+        self.speed = 0
 
         # environment, actions: left, straight, right; observations: checkpoint states
-        self.action_space = Discrete(3)
-        self.observation_space = Discrete(9)
-        self.state = 0
+        self.action_space = Discrete(4)
+        self.observation_space = MultiBinary(8)
+        self.state = np.zeros(8).astype(int)
         self.episode_length = 30
-        self.checkpoints_reached = 0
-        self.checkpoints_reached_previous = 0
+        self.checkpoints_reached = np.zeros(8).astype(int)
+        self.checkpoints_reached_previous = np.zeros(8).astype(int)
         self.current_reward = 0
         self.current_done = False
         self.current_info = {}
+        self.score = 0
 
     # register to TM
     def on_registered(self, iface: TMInterface) -> None:
@@ -39,22 +44,26 @@ class TMAgent(Client, Env):
 
     # step
     def on_run_step(self, iface: TMInterface, _time: int):
-        if _time >= 0:
+        if _time >= 0 and _time % 50 == 0:
             # get data from game and set it into variables
             game_data = iface.get_simulation_state()
+            self.speed = game_data.display_speed
             checkpoint_data = iface.get_checkpoint_state()
             self.checkpoint_states = checkpoint_data.cp_states
 
             # get the next action
-            action = self.get_action()
+            action = self.action_space.sample()
+            #action = QLearning(self.state)
 
             # perform a move
             if action == 0:
-                iface.set_input_state(left=True)
+                iface.set_input_state(left=True, accelerate=True, right=False, brake=False)
             if action == 1:
-                iface.set_input_state(accelerate=True)
+                iface.set_input_state(left=False, accelerate=True, right=False, brake=False)
             if action == 2:
-                iface.set_input_state(right=True)
+                iface.set_input_state(left=False, accelerate=True, right=True, brake=False)
+            if action == 3:
+                iface.set_input_state(left=False, accelerate=True, right=False, brake=True)
             
             # update state
             self.state = self.checkpoint_states
@@ -63,16 +72,23 @@ class TMAgent(Client, Env):
             self.episode_length -= 1
 
             # calculate reward
+            reward = 0
             self.checkpoints_reached_previous = self.checkpoints_reached
             self.checkpoints_reached = self.state
-            if self.checkpoints_reached > self.checkpoints_reached_previous:
-                reward = +100
+            if sum(self.checkpoints_reached) > sum(self.checkpoints_reached_previous):
+                reward += +100
             else:
-                reward = -0.1
+                reward += -0.5
+
+            if _time > 5000 and self.speed > 50:
+                reward += +1
+            else:
+                reward += -0.5
+            
             self.current_reward = reward
 
             # check whether game is done
-            if self.state == 8:
+            if self.state[-1] == 1:
                 done = True
             else:
                 done = False
@@ -82,9 +98,13 @@ class TMAgent(Client, Env):
             info = {}
             self.current_info = info
 
-            self.step()
+            self.score += self.current_reward
+            print(f'REWARD: {self.score}')
 
-    def step(self):
+            #self.step()
+
+    def step(self, action):
+        self.on_run_step(TMInterface, time, action)
         return self.state, self.current_reward, self.current_done, self.current_info
 
     # let game play when goal reached
@@ -92,17 +112,19 @@ class TMAgent(Client, Env):
         print(f'Reached checkpoint {current}/{target}')
         if current == target:
             iface.prevent_simulation_finish()
+            iface.give_up()
+            self.state = np.zeros(8).astype(int)
+            self.episode_length = 30
+            self.checkpoints_reached = np.zeros(8).astype(int)
+            self.checkpoints_reached_previous = np.zeros(8).astype(int)
+            self.current_reward = 0
+            self.current_done = False
+            self.current_info = {}
+            self.score = 0
+            self.reset()
 
     # reset the level
-    def reset(self, iface: TMInterface):
-        iface.give_up()
-        self.checkpoint_states = None
-        self.position = None
-        self.velocity = None
-        self.state = 0
-        self.episode_length = 30
-        self.checkpoints_reached = 0
-        self.checkpoints_reached_previous = 0
+    def reset(self):
         return self.state
 
     # generate random action
@@ -113,30 +135,36 @@ class TMAgent(Client, Env):
         pass
 
 
-agent = TMAgent()
+env = TMEnv()
+
+def model_learn():
+    model = A2C('MlpPolicy', env, verbose=1)
+    model.learn(total_timesteps=10000)
+    model.save('A2C_TM')
+
 
 # connect to TM
 def main():
     server_name = f'TMInterface{sys.argv[1]}' if len(sys.argv) > 1 else 'TMInterface0'
     print(f'Connecting to {server_name}...')
-    run_client(agent, server_name)
+    run_client(env, server_name)
 
 # test the agent
 def test():
     episodes = 10
 
     for episode in range(1, episodes + 1):
-        obs = agent.reset()
+        obs = env.reset()
         done = False
         score = 0
 
         while not done:
-            obs, reward, done, info = agent.step()
+            obs, reward, done, info = env.step()
             score += reward
         
         print(f'Episode:{episode} Score:{score}')
 
-    agent.close()
+    env.close()
 
 
 if __name__ == '__main__':
