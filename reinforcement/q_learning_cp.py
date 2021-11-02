@@ -36,8 +36,11 @@ class Q_Agent(Client):
         if _time >= 0 and _time % 50 == 0:
             if np.random.random() < self.epsilon:
                 action = np.random.choice(self.actions)
+                print('RANDOM')
             else:
                 action = np.argmax(self.q[sum(self.state).astype(int)])
+                print('ERFAHRUNG', action)
+                print(self.q[sum(self.state).astype(int)])
 
             if action == 0:
                 iface.set_input_state(left=True, accelerate=True, right=False, brake=False)
@@ -52,21 +55,31 @@ class Q_Agent(Client):
             cp_data = iface.get_checkpoint_state()
             self.state = np.array(cp_data.cp_states)
 
+            game_data = iface.get_simulation_state()
+            position = np.round(game_data.position[0]).astype(int)
+            speed = game_data.display_speed
+
             reward = 0
             if sum(self.state) > sum(self.prev_state):
                 reward += +25
             else:
-                reward = -0.5
+                reward += -0.5
             if sum(self.state) == 8:
                 reward += +250
+            if 365 <= position <= 371:
+                reward += 1
+            else: 
+                reward += -2
+            reward += speed / 10
             self.episode_reward += reward
 
             current_q = self.q[sum(self.state).astype(int)][action]
             max_future_q = np.max(self.q[sum(self.state).astype(int)])
-            new_q = (1 - self.learning_rate) * current_q + self.learning_rate * (reward + self.discount * max_future_q)
+            new_q = current_q + self.learning_rate * (reward + (self.discount * max_future_q) - current_q)
+            #new_q = (1 - self.learning_rate) * current_q + self.learning_rate * (reward + self.discount * max_future_q)
             self.q[sum(self.state).astype(int)][action] = new_q
 
-            if _time == 10000 or sum(self.state) == 8:
+            if _time == 12000 or sum(self.state) == 8:
                 if self.episode_reward > self.best_reward:
                     self.best_reward = self.episode_reward
                     self.best_episode = self.current_episode
