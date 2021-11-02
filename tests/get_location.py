@@ -1,7 +1,6 @@
 from tminterface.interface import TMInterface
 from tminterface.client import Client, run_client
 import sys
-import numpy as np
 
 class MainClient(Client):
     def __init__(self) -> None:
@@ -9,18 +8,12 @@ class MainClient(Client):
 
     def on_registered(self, iface: TMInterface) -> None:
         print(f'Registered to {iface.server_name}')
+        print(iface.get_simulation_state().position)
 
-    def on_run_step(self, iface: TMInterface, _time: int):
-        if _time >= 0:
-            state = iface.get_simulation_state()
-            check = iface.get_checkpoint_state()
-
-            print(
-                f'Time: {_time}\n' 
-                f'X: {np.round(state.position[2])}\n'
-                f'Y: {np.round(state.position[0])}\n'
-            )
-
+    def on_checkpoint_count_changed(self, iface: TMInterface, current: int, target: int):
+        if current == target:
+            print(iface.get_simulation_state().position)
+            iface.prevent_simulation_finish()
 
 def main():
     server_name = f'TMInterface{sys.argv[1]}' if len(sys.argv) > 1 else 'TMInterface0'
