@@ -17,13 +17,15 @@ class Q_Agent(Client):
         self.q = np.zeros([9, 4])
         self.learning_rate = 0.1
         self.epsilon = 0.9
-        self.epsilon_decay = 0.98
+        self.epsilon_decay = 0.9995
         self.discount = 0.95
         self.current_episode = 0
         self.episodes = 100
         self.episode_reward = 0
         self.rewards = np.array([])
         self.prev_state = np.zeros(8)
+        self.best_reward = 0
+        self.best_episode = 0
 
     # register to TM
     def on_registered(self, iface: TMInterface) -> None:
@@ -53,10 +55,10 @@ class Q_Agent(Client):
             reward = 0
             if sum(self.state) > sum(self.prev_state):
                 reward += +25
-            elif sum(self.state) == 8:
-                reward += +100
             else:
                 reward = -0.5
+            if sum(self.state) == 8:
+                reward += +250
             self.episode_reward += reward
 
             current_q = self.q[sum(self.state).astype(int)][action]
@@ -64,11 +66,15 @@ class Q_Agent(Client):
             new_q = (1 - self.learning_rate) * current_q + self.learning_rate * (reward + self.discount * max_future_q)
             self.q[sum(self.state).astype(int)][action] = new_q
 
-            if _time == 20000 or sum(self.state) == 8:
+            if _time == 10000 or sum(self.state) == 8:
+                if self.episode_reward > self.best_reward:
+                    self.best_reward = self.episode_reward
+                    self.best_episode = self.current_episode
                 print(f'===== Finished episode {self.current_episode} =====')
                 print(f'Episode reward: {self.episode_reward}')
                 self.rewards = np.append(self.rewards, self.episode_reward)
                 print(f'Average reward: {np.mean(self.rewards)}')
+                print(f'Best episode so far: {self.best_episode} with a reward of {self.best_reward}\n')
                 self.state = np.zeros(8)
                 self.current_episode += 1
                 self.episode_reward = 0

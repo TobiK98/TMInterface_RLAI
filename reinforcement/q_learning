@@ -11,10 +11,11 @@ import numpy as np
 class Q_Agent(Client):
     def __init__(self) -> None:
         super(Q_Agent, self).__init__()
-        self.position = np.array([])
-        self.velocity = np.array([])
-        self.state = None
-        self.prev_state = None
+        self.state = np.array([])
+        self.starting_state = np.array([])
+        self.prev_state = np.array([])
+        self.all_states = np.array([])
+        self.current_state_index = 0
         self.actions = np.arange(4)
         self.q = np.zeros([1, 4])
         self.learning_rate = 0.1
@@ -25,27 +26,29 @@ class Q_Agent(Client):
         self.episodes = 100
         self.episode_reward = 0
         self.rewards = np.array([])
+        self.cp_states = np.zeros(8)
+        self.prev_cp_states = np.zeros(8)
 
     # register to TM
     def on_registered(self, iface: TMInterface) -> None:
         print(f'Registered to {iface.server_name}')
+        self.starting_state = iface.get_simulation_state().position
+        self.state = self.starting_state
 
     # step
     def on_run_step(self, iface: TMInterface, _time: int):
         if _time >= 0 and _time % 50 == 0:
-            game_data = iface.get_simulation_state()
-            self.position = game_data.position
-            self.velocity = game_data.velocity
-            if self.state is None:
-                self.state = np.array([self.position, self.velocity])
 
-            if self.state not in self.q:
-                np.append()
+            if self.state not in self.all_states:
+                self.all_states = np.append(self.all_states, self.state)
+                self.q = np.vstack((self.q, np.zeros(4)))
+
+            self.current_state_index = np.where(self.all_states == self.state)
 
             if np.random.random() < self.epsilon:
                 action = np.random.choice(self.actions)
             else:
-                action = np.argmax(self.q[sum(self.state).astype(int)])
+                action = np.argmax(self.q[self.current_state_index])
 
             if action == 0:
                 iface.set_input_state(left=True, accelerate=True, right=False, brake=False)
@@ -57,29 +60,31 @@ class Q_Agent(Client):
                 iface.set_input_state(left=False, accelerate=True, right=False, brake=True)
 
             self.prev_state = self.state
-            cp_data = iface.get_checkpoint_state()
-            self.state = np.array(cp_data.cp_states)
+            game_data = iface.get_simulation_state()
+            self.state = game_data.position
 
+            self.prev_cp_states = self.cp_states
+            self.cp_states = iface.get_checkpoint_state().cp_states
             reward = 0
-            if sum(self.state) > sum(self.prev_state):
+            if sum(self.cp_states) > sum(self.prev_cp_states):
                 reward += +25
-            elif sum(self.state) == 8:
+            elif sum(self.cp_states) == 8:
                 reward += +100
             else:
                 reward = -0.5
             self.episode_reward += reward
 
-            current_q = self.q[sum(self.state).astype(int)][action]
-            max_future_q = np.max(self.q[sum(self.state).astype(int)])
+            current_q = self.q[self.current_state_index][action]
+            max_future_q = np.max(self.q[self.current_state_index])
             new_q = (1 - self.learning_rate) * current_q + self.learning_rate * (reward + self.discount * max_future_q)
-            self.q[sum(self.state).astype(int)][action] = new_q
+            self.q[self.current_state_index][action] = new_q
 
-            if _time == 20000 or sum(self.state) == 8:
+            if _time == 20000 or sum(self.cp_states) == 8:
                 print(f'===== Finished episode {self.current_episode} =====')
                 print(f'Episode reward: {self.episode_reward}')
                 self.rewards = np.append(self.rewards, self.episode_reward)
                 print(f'Average reward: {np.mean(self.rewards)}')
-                self.state = np.zeros(8)
+                self.state = self.starting_state
                 self.current_episode += 1
                 self.episode_reward = 0
                 self.epsilon *= self.epsilon_decay
