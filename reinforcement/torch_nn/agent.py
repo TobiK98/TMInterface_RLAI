@@ -19,6 +19,11 @@ LEARNING_RATE = 0.001
 class Q_Agent(Client):
     def __init__(self) -> None:
         super(Q_Agent, self).__init__()
+        self.start_point = [757, 10, 624]
+        self.end_point = [182, 9, 624]
+        self.total_distance = self.calculate_distance(self.start_point)
+        self.covered_track_prev = 0
+        self.covered_track = 0
         self.epsilon = 0
         self.gamma = 0.9
         self.memory = deque(maxlen=MAX_MEMORY)
@@ -26,13 +31,12 @@ class Q_Agent(Client):
         self.record = 0
         self.model = Linear_QNet(3, 256, 4)
         self.trainer = QTrainer(self.model, lr=LEARNING_RATE, gamma=self.gamma)
-        self.covered_track_prev = 0
-        self.covered_track = 0
         self.game_over = False
         self.score = 0
-        self.max_episode_time = 15000
+        self.max_episode_time = 20000
         self.checkpoints_reached = 0
         self.checkpoints_reached_prev = 0
+        self.number_of_checkpoints = 6
 
     # register to TM
     def on_registered(self, iface: TMInterface) -> None:
@@ -102,18 +106,27 @@ class Q_Agent(Client):
         # calculate reward for performed action
         reward = 0
         self.covered_track_prev = self.covered_track
-        # later: calculate range between start and end (Punkte in einem Raum)
-        self.covered_track = np.round(iface.get_simulation_state().position[2])
+        self.covered_track = self.calculate_distance(np.round(iface.get_simulation_state().position).astype(int))
         if self.covered_track > self.covered_track_prev:
             reward += 10
         else:
             reward += -50
-        self.checkpoints_reached = self.checkpoints_reached_prev
+        self.checkpoints_reached_prev = self.checkpoints_reached_prev
         self.checkpoints_reached = sum(iface.get_checkpoint_state().cp_states)
         if self.checkpoints_reached > self.checkpoints_reached_prev:
-            reward += (self.max_episode_time - _time) / (9 - self.checkpoints_reached)
+            reward += ((self.max_episode_time - _time) / (self.number_of_checkpoints + 1 - self.checkpoints_reached)) / 10
+        if iface.get_simulation_state().display_speed < 25 and _time > 1000:
+            reward += -10000
+            self.game_over = True
 
         return reward
+
+    def calculate_distance(self, current_location):
+        distance = np.sqrt(np.power((self.end_point[0] - current_location[0]), 2) + 
+                            np.power((self.end_point[1] - current_location[1]), 2) +
+                            np.power((self.end_point[2] - current_location[2]), 2))
+        print(distance)
+        return distance
 
     def get_state(self, iface: TMInterface):
         return iface.get_simulation_state().position
@@ -135,19 +148,17 @@ class Q_Agent(Client):
 
     def get_action(self, state):
         # random moves: tradeoff exploration / exploration
-        self.epsilon = 90 - self.episodes
+        self.epsilon = 90 - (self.episodes / 2)
         final_move = [0, 0, 0, 0]
         
         if random.randint(0, 100) < self.epsilon:
             move = random.randint(0, 3)
             final_move[move] = 1
-            print('RANDOM')
         else:
             state0 = torch.tensor(state, dtype=torch.float)
             prediction = self.model(state0)
             move = torch.argmax(prediction).item()
             final_move[move] = 1
-            print('ERFAHRUNG')
 
         return final_move.index(1)
 
