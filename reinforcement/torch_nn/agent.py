@@ -30,6 +30,9 @@ class Q_Agent(Client):
         self.covered_track = 0
         self.game_over = False
         self.score = 0
+        self.max_episode_time = 15000
+        self.checkpoints_reached = 0
+        self.checkpoints_reached_prev = 0
 
     # register to TM
     def on_registered(self, iface: TMInterface) -> None:
@@ -44,7 +47,7 @@ class Q_Agent(Client):
             final_move = self.get_action(state_old)
 
             # perform move and get new state
-            reward = self.play_step(final_move, iface)
+            reward = self.play_step(final_move, iface, _time)
             done = self.game_over
             self.score += reward
             state_new = self.get_state(iface)
@@ -55,9 +58,11 @@ class Q_Agent(Client):
             # remember
             self.remember(state_old, final_move, reward, state_new, done)
 
+            if _time > self.max_episode_time:
+                self.game_over = True
+
             if done:
                 # train long memory
-                self.reset(iface)
                 self.episodes += 1
                 self.train_long_memory()
 
@@ -66,6 +71,7 @@ class Q_Agent(Client):
                     self.model.save()
 
                 print(f'Game: {self.episodes}, Score: {self.score}, Record: {self.record}')
+                self.reset(iface)
 
     def on_checkpoint_count_changed(self, iface: TMInterface, current: int, target: int):
         if current == target:
@@ -74,13 +80,15 @@ class Q_Agent(Client):
 
     def reset(self, iface: TMInterface):
         # reset self
-        iface.give_up()
         self.covered_track_prev = 0
         self.covered_track = 0
+        self.checkpoints_reached = 0
+        self.checkpoints_reached_prev = 0
         self.game_over = False
         self.score = 0
+        iface.give_up()
 
-    def play_step(self, action, iface: TMInterface):
+    def play_step(self, action, iface: TMInterface, _time: int):
         # perform the given action
         if action == 0:
             iface.set_input_state(left=False, accelerate=True, right=False, brake=False)
@@ -94,11 +102,16 @@ class Q_Agent(Client):
         # calculate reward for performed action
         reward = 0
         self.covered_track_prev = self.covered_track
+        # later: calculate range between start and end (Punkte in einem Raum)
         self.covered_track = np.round(iface.get_simulation_state().position[2])
         if self.covered_track > self.covered_track_prev:
             reward += 10
         else:
-            reward += -10
+            reward += -50
+        self.checkpoints_reached = self.checkpoints_reached_prev
+        self.checkpoints_reached = sum(iface.get_checkpoint_state().cp_states)
+        if self.checkpoints_reached > self.checkpoints_reached_prev:
+            reward += (self.max_episode_time - _time) / (9 - self.checkpoints_reached)
 
         return reward
 
@@ -125,14 +138,16 @@ class Q_Agent(Client):
         self.epsilon = 90 - self.episodes
         final_move = [0, 0, 0, 0]
         
-        if random.randint(0, 200) < self.epsilon:
+        if random.randint(0, 100) < self.epsilon:
             move = random.randint(0, 3)
             final_move[move] = 1
+            print('RANDOM')
         else:
             state0 = torch.tensor(state, dtype=torch.float)
             prediction = self.model(state0)
             move = torch.argmax(prediction).item()
             final_move[move] = 1
+            print('ERFAHRUNG')
 
         return final_move.index(1)
 
