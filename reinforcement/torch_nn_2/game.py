@@ -9,19 +9,22 @@ import sys
 class Game(Client):
     def __init__(self) -> None:
         super(Game, self).__init__()
-        self.agent = Agent(gamma=0.99, epsilon=1.0, batch_size=1028, n_actions=4, eps_end=0.001, input_dims=[3], lr=0.001)
+        self.agent = Agent(gamma=0.99, epsilon=1.0, batch_size=600, n_actions=4, eps_end=0.001, input_dims=[6], lr=0.001)
         self.score = 0
         self.scores = []
         self.history = []
-        self.n_games = 500
         self.speed = 0
         self.speed_prev = 0
         self.current_game = 0
-        self.cp_sum = 6
-        self.plotting_done = False
+        self.cp_sum = 4
         self.cp_reached = 0
         self.cp_reached_prev = 0
         self.avg_scores = []
+        self.end_position = np.array([502.36, 9.36, 559.93])
+        self.current_distance = 0
+        self.prev_distance = 0
+        self.frame_speed = 0
+        self.frame_speed_prev = 0
 
     def reset(self, iface: TMInterface):
         if self.current_game % 100 == 0:
@@ -31,6 +34,10 @@ class Game(Client):
         self.speed_prev = 0
         self.cp_reached = 0
         self.cp_reached_prev = 0
+        self.current_distance = 0
+        self.prev_distance = 0
+        self.frame_speed = 0
+        self.frame_speed_prev = 0
         iface.give_up()
 
     def on_registered(self, iface: TMInterface) -> None:
@@ -38,13 +45,13 @@ class Game(Client):
 
     def on_run_step(self, iface: TMInterface, _time: int):
         if _time >= 0 and _time % 50 == 0:
-            observation = np.round(iface.get_simulation_state().position, 2).astype(np.float32)
+            observation = self.get_observation(iface)
             action = self.agent.choose_action(observation)
             self.perform_action(action, iface)
 
-            observation_ = np.round(iface.get_simulation_state().position, 2).astype(np.float32)
-            reward = self.calculate_reward(iface, _time)
-            done = True if _time > 30000 or (_time > 1000 and iface.get_simulation_state().display_speed < 10) or sum(iface.get_checkpoint_state().cp_states) == self.cp_sum else False
+            reward = self.calculate_reward(observation, iface, _time)
+            observation_ = self.get_observation(iface)
+            done = True if _time > 15000 or sum(iface.get_checkpoint_state().cp_states) == self.cp_sum else False
 
             self.score += reward
 
@@ -60,6 +67,11 @@ class Game(Client):
                 self.current_game += 1
                 self.reset(iface)
 
+    def get_observation(self, iface: TMInterface):
+        position = np.round(iface.get_simulation_state().position, 1).astype(np.float32)
+        velocity = np.round(iface.get_simulation_state().velocity, 1).astype(np.float32)
+        return np.append(position, velocity)
+
     def perform_action(self, action, iface: TMInterface):
         if action == 0:
             iface.set_input_state(left=False, accelerate=True, right=False, brake=False)
@@ -70,24 +82,62 @@ class Game(Client):
         if action == 3:
             iface.set_input_state(left=False, accelerate=True, right=False, brake=True)
 
-    def calculate_reward(self, iface: TMInterface, _time: int):
+    def calculate_reward(self, observation, iface: TMInterface, _time: int):
         reward = 0
-        if self.speed < self.speed_prev - 10:
-            reward += -20000
+        # every half second
+        if _time % 500 == 0:
+            # coming closer to goal
+            self.prev_distance = self.current_distance
+            self.current_distance = self.calculate_distance(np.split(observation, 2)[0])
+            if self.current_distance > self.prev_distance:
+                reward += -15000
+            else:
+                reward += 500
+
+            # going on the wall
+            self.frame_speed_prev = self.frame_speed
+            self.frame_speed = iface.get_simulation_state().display_speed
+            if self.frame_speed <= self.frame_speed_prev + 5:
+                reward += -5000
+            else:
+                reward += 500
+
+        # hitting something
+        if self._check_crash(iface):
+            reward += -2500
         else:
-            reward += (+_time / 1000) + (iface.get_simulation_state().display_speed / 5)
+            reward += iface.get_simulation_state().display_speed * 2
+
+        # standing on wall or only breaking
+        if _time > 2000 and self.speed < 40:
+            reward += -20000            
+        
+        # reaching checkpoints
         self.cp_reached_prev = self.cp_reached
         self.cp_reached = sum(iface.get_checkpoint_state().cp_states)
         if self.cp_reached > self.cp_reached_prev:
             if self.cp_reached == self.cp_sum:
-                reward += 40000
+                reward += +50000
             else:
-                reward += 1000 * self.cp_reached
+                reward += +(2000 * self.cp_reached)
+        
         return reward
+
+    def _check_crash(self, iface: TMInterface):
+        self.speed_prev = self.speed
+        self.speed = iface.get_simulation_state().display_speed
+        if self.speed < self.speed_prev - 5:
+            return True
+        return False
+
+    def calculate_distance(self, location):
+        distance = np.sqrt(np.power((self.end_position[0] - location[0]), 2) + 
+                            np.power((self.end_position[1] - location[1]), 2) +
+                            np.power((self.end_position[2] - location[2]), 2))
+        return distance
 
     def on_checkpoint_count_changed(self, iface: TMInterface, current: int, target: int):
         if current == target:
-            self.game_over = True
             iface.prevent_simulation_finish()
 
 

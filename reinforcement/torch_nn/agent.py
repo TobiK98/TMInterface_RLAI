@@ -12,8 +12,8 @@ import numpy as np
 import torch
 from collections import deque
 
-MAX_MEMORY = 100000
-BATCH_SIZE = 1000
+MAX_MEMORY = 1_000_000
+BATCH_SIZE = 10_000
 LEARNING_RATE = 0.001
 
 class Q_Agent(Client):
@@ -29,14 +29,17 @@ class Q_Agent(Client):
         self.memory = deque(maxlen=MAX_MEMORY)
         self.episodes = 0
         self.record = 0
-        self.model = Linear_QNet(3, 256, 4)
+        self.model = Linear_QNet(6, 256, 4)
         self.trainer = QTrainer(self.model, lr=LEARNING_RATE, gamma=self.gamma)
         self.game_over = False
         self.score = 0
-        self.max_episode_time = 20000
+        self.max_episode_time = 30000
         self.checkpoints_reached = 0
         self.checkpoints_reached_prev = 0
         self.number_of_checkpoints = 6
+        self.speed = 0
+        self.speed_prev = 0
+        self.time_without_crash = 0
 
     # register to TM
     def on_registered(self, iface: TMInterface) -> None:
@@ -90,6 +93,9 @@ class Q_Agent(Client):
         self.checkpoints_reached_prev = 0
         self.game_over = False
         self.score = 0
+        self.speed = 0
+        self.speed_prev = 0
+        self.time_without_crash = 0
         iface.give_up()
 
     def play_step(self, action, iface: TMInterface, _time: int):
@@ -105,6 +111,16 @@ class Q_Agent(Client):
 
         # calculate reward for performed action
         reward = 0
+        self.speed_prev = self.speed
+        self.speed = iface.get_simulation_state().display_speed
+        if not self.crash():
+            reward += _time / 100
+            reward += iface.get_simulation_state().display_speed
+        else: 
+            reward = -10000
+            self.game_over = True
+        
+        '''
         self.covered_track_prev = self.covered_track
         self.covered_track = self.calculate_distance(np.round(iface.get_simulation_state().position).astype(int))
         if self.covered_track > self.covered_track_prev:
@@ -113,13 +129,22 @@ class Q_Agent(Client):
             reward += -50
         self.checkpoints_reached_prev = self.checkpoints_reached_prev
         self.checkpoints_reached = sum(iface.get_checkpoint_state().cp_states)
+        
         if self.checkpoints_reached > self.checkpoints_reached_prev:
-            reward += ((self.max_episode_time - _time) / (self.number_of_checkpoints + 1 - self.checkpoints_reached)) / 10
-        if iface.get_simulation_state().display_speed < 25 and _time > 1000:
+            reward += ((self.max_episode_time - _time) / (self.number_of_checkpoints + 1 - self.checkpoints_reached)) / 20 * self.checkpoints_reached
+        if self.checkpoints_reached == self.number_of_checkpoints:
+            reward += +5000
+        if self.hit_wall():
             reward += -10000
-            self.game_over = True
+        '''
 
         return reward
+
+    def crash(self):
+        did_crash = False
+        if self.speed <= (self.speed_prev - 10):
+            did_crash = True 
+        return did_crash
 
     def calculate_distance(self, current_location):
         distance = np.sqrt(np.power((self.end_point[0] - current_location[0]), 2) + 
@@ -129,7 +154,9 @@ class Q_Agent(Client):
         return distance
 
     def get_state(self, iface: TMInterface):
-        return iface.get_simulation_state().position
+        position = np.array(iface.get_simulation_state().position)
+        velocity = np.array(iface.get_simulation_state().velocity )
+        return np.append(position, velocity).tolist()
 
     def remember(self, state, action, reward, next_state, done):
         self.memory.append((state, action, reward, next_state, done))
@@ -148,7 +175,7 @@ class Q_Agent(Client):
 
     def get_action(self, state):
         # random moves: tradeoff exploration / exploration
-        self.epsilon = 90 - (self.episodes / 2)
+        self.epsilon = 90 - self.episodes
         final_move = [0, 0, 0, 0]
         
         if random.randint(0, 100) < self.epsilon:
@@ -159,6 +186,7 @@ class Q_Agent(Client):
             prediction = self.model(state0)
             move = torch.argmax(prediction).item()
             final_move[move] = 1
+            print(move)
 
         return final_move.index(1)
 
