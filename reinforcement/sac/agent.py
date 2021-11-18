@@ -21,13 +21,13 @@ class Agent():
         self.target_value = ValueNetwork(beta, input_dims, name='target_value')
 
         self.scale = reward_scale
-        self.ipdate_network_parameters(tau=1)
+        self.update_network_parameters(tau=1)
 
     def choose_action(self, observation):
         state = T.tensor([observation]).to(self.actor.device)
         actions, _ = self.actor.sample_normal(state, reparameterize=False)
 
-        return actions.cpu().detach.numpy()[0]
+        return actions.cpu().detach().numpy()[0]
 
     def remember(self, state, action, reward, new_state, done):
         self.memory.store_transition(state, action, reward, new_state, done)
@@ -43,7 +43,7 @@ class Agent():
         value_state_dict = dict(value_params)
 
         for name in value_state_dict:
-            value_state_dict[name] = tau * value_state_dict[name].clone() + (1 - tau) * target_value_params[name].clone()
+            value_state_dict[name] = tau * value_state_dict[name].clone() + (1 - tau) * target_value_state_dict[name].clone()
 
         self.target_value.load_state_dict(value_state_dict)
 

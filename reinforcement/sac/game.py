@@ -10,7 +10,7 @@ import sys
 class Game(Client):
     def __init__(self) -> None:
         super(Game, self).__init__()
-        self.agent = Agent(input_dims=6, n_actions=[4])
+        self.agent = Agent(input_dims=[6], n_actions=4)
         self.score = 0
         self.scores = []
         self.history = []
