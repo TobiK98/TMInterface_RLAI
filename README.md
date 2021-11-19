@@ -1,8 +1,5 @@
-# Python client for TMInterface
-NOTE: the TMInterface is not finished and is subject to change.
+# Trackmania Interface with reinforcement learning
 
-This is the Python client for TMInterface.
+Tobias Kück und Joe Göpel
 
-Install the package with pip: `pip install tminterface`.
-
-Documentation is only available in the form of docstrings at the moment.
+Die Wichtigen Dateien sind in "reinfocement/x"
