@@ -13,6 +13,7 @@ class Game(Client):
         self.score = 0
         self.scores = []
         self.history = []
+        self.epsilon_over_time = []
         self.speed = 0
         self.speed_prev = 0
         self.current_game = 0
@@ -23,12 +24,11 @@ class Game(Client):
         self.end_position = np.array([502.36, 9.36, 559.93])
         self.current_distance = 0
         self.prev_distance = 0
-        self.frame_speed = 0
-        self.frame_speed_prev = 0
+        self.max_distance = 270
 
     def reset(self, iface: TMInterface):
         if self.current_game % 100 == 0:
-            plot_learning(np.arange(self.current_game), self.scores, self.avg_scores, self.current_game)
+            plot_learning(np.arange(self.current_game), self.scores, self.avg_scores, self.epsilon_over_time, self.current_game)
         self.score = 0
         self.speed = 0
         self.speed_prev = 0
@@ -36,8 +36,6 @@ class Game(Client):
         self.cp_reached_prev = 0
         self.current_distance = 0
         self.prev_distance = 0
-        self.frame_speed = 0
-        self.frame_speed_prev = 0
         iface.give_up()
 
     def on_registered(self, iface: TMInterface) -> None:
@@ -51,7 +49,7 @@ class Game(Client):
 
             reward = self.calculate_reward(observation, iface, _time)
             observation_ = self.get_observation(iface)
-            done = True if _time > 15000 or sum(iface.get_checkpoint_state().cp_states) == self.cp_sum else False
+            done = True if _time > 20000 or sum(iface.get_checkpoint_state().cp_states) == self.cp_sum or (_time > 1000 and iface.get_simulation_state().display_speed <= 20) else False
 
             self.score += reward
 
@@ -63,7 +61,8 @@ class Game(Client):
                 self.history.append(self.agent.epsilon)
                 avg_score = np.mean(self.scores)
                 self.avg_scores.append(avg_score)
-                print(f'Game: {self.current_game}, Score: {self.score}, Avg-Score: {avg_score}, Epsilon: {self.agent.epsilon}')
+                self.epsilon_over_time.append(self.agent.epsilon)
+                print(f'Game: {self.current_game}, Score: {self.score}, Avg-Score: {avg_score}, Epsilon: {self.epsilon_over_time[-1]}')
                 self.current_game += 1
                 self.reset(iface)
 
@@ -84,6 +83,7 @@ class Game(Client):
 
     def calculate_reward(self, observation, iface: TMInterface, _time: int):
         reward = 0
+        '''
         # every half second
         if _time % 500 == 0:
             # coming closer to goal
@@ -120,6 +120,32 @@ class Game(Client):
                 reward += +50000
             else:
                 reward += +(2000 * self.cp_reached)
+        '''
+        calc = (self.calculate_distance(iface.get_simulation_state().position) / self.max_distance)
+        current_divider = calc if calc > 0.2 else 0.2
+        self.speed = iface.get_simulation_state().display_speed
+        if _time > 1000 and self.speed <= 20:
+            reward += -250000 * current_divider
+        if _time > 100:
+            self.prev_distance = self.current_distance
+            self.current_distance = self.calculate_distance(np.split(observation, 2)[0])
+            if self.current_distance < self.prev_distance:
+                reward += +((self.prev_distance - self.current_distance) * 5)
+            else:
+                reward += -1000
+            if self.getting_faster(iface):
+                reward += iface.get_simulation_state().display_speed 
+            else:
+                reward += -250
+            if self._check_crash(iface):
+                reward += -1000
+        self.cp_reached_prev = self.cp_reached
+        self.cp_reached = sum(iface.get_checkpoint_state().cp_states)
+        if self.cp_reached > self.cp_reached_prev:
+            if self.cp_reached == self.cp_sum:
+                reward += +5000
+            else:
+                reward += +(500 * self.cp_reached)
         
         return reward
 
@@ -129,6 +155,14 @@ class Game(Client):
         if self.speed < self.speed_prev - 5:
             return True
         return False
+
+    def getting_faster(self, iface: TMInterface):
+        self.speed_prev = self.speed
+        self.speed = iface.get_simulation_state().display_speed
+        if self.speed >= self.speed_prev:
+            return True
+        else:
+            return False
 
     def calculate_distance(self, location):
         distance = np.sqrt(np.power((self.end_position[0] - location[0]), 2) + 

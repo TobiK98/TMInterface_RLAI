@@ -9,7 +9,7 @@ import sys
 class Game(Client):
     def __init__(self) -> None:
         super(Game, self).__init__()
-        self.agent = Agent(gamma=0.99, epsilon=1.0, alpha=0.001, input_dims=[6], n_actions=4, mem_size=2000000, eps_min=0.001, batch_size=300, eps_dec=0.00005, replace=100)
+        self.agent = Agent(gamma=0.99, epsilon=1.0, alpha=0.001, input_dims=[6], n_actions=4, mem_size=1200000, eps_min=0.001, batch_size=600, eps_dec=0.00001, replace=300)
         self.score = 0
         self.scores = []
         self.history = []
@@ -26,7 +26,7 @@ class Game(Client):
         self.prev_distance = 0
         self.frame_speed = 0
         self.frame_speed_prev = 0
-        self.max_time = 15000
+        self.max_time = 20000
         self.max_distance = 270
 
     def reset(self, iface: TMInterface):
@@ -145,13 +145,13 @@ class Game(Client):
                 reward += +5000
             else:
                 reward += +(500 * self.cp_reached)
-
+        
         return reward
 
     def getting_faster(self, iface: TMInterface):
         self.speed_prev = self.speed
         self.speed = iface.get_simulation_state().display_speed
-        if self.speed > self.speed_prev:
+        if self.speed >= self.speed_prev:
             return True
         else:
             return False

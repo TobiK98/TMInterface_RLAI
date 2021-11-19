@@ -4,7 +4,7 @@ import numpy as np
 
 
 class Agent():
-    def __init__(self, gamma, epsilon, lr, input_dims, batch_size, n_actions, max_mem_size=600000, eps_end=0.001, eps_dec=0.0001):
+    def __init__(self, gamma, epsilon, lr, input_dims, batch_size, n_actions, max_mem_size=1200000, eps_end=0.001, eps_dec=0.00001):
         self.gamma = gamma
         self.epsilon = epsilon
         self.lr = lr
